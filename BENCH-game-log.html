@@ -116,6 +116,9 @@
   .mvpname{font-size:18px; font-weight:800; color:var(--ink); margin-bottom:10px;}
   .mvpsel{width:100%; background:var(--surface2); color:var(--ink); border:none; border-radius:9px; padding:11px 12px; font-size:15px;}
   .mvpstar{color:var(--gold);}
+  .xlsxbtn{width:100%; margin-top:18px; padding:15px; border-radius:12px; background:var(--gold); color:var(--goldink); font-weight:900; font-size:15px; letter-spacing:.01em;}
+  .copyfallback{margin-top:12px;}
+  .copyfallback summary{color:var(--muted); font-size:13px; padding:8px 0; cursor:pointer;}
   .field .teamsel{flex:1; width:auto; min-width:0; background:var(--surface2); color:var(--ink); border:none; border-radius:9px; padding:11px 10px; font-size:15px;}
   .field .teamcustom{width:100%; background:var(--surface2); color:var(--ink); border:none; border-radius:9px; padding:11px 12px; font-size:16px;}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
@@ -318,13 +321,14 @@ function noteFor(p){
   });
   return parts.join(" | ");
 }
-function gameLogTSV(){
-  var m=game.meta, rows=computeStats().map(function(s){
-    return [m.date,opponent(),gameTypeExport(),s.p.name,s.p.num,s.g,s.a,s.pts,s.gfOn,s.gaOn,s.pm,s.penC,s.p.line,m.liveBarn,noteFor(s.p)].join("\t");
-  });
-  return [COLS.join("\t")].concat(rows).join("\n");
+function gameLogArr(){
+  var m=game.meta;
+  return [COLS].concat(computeStats().map(function(s){
+    return [m.date,opponent(),gameTypeExport(),s.p.name,s.p.num,s.g,s.a,s.pts,s.gfOn,s.gaOn,s.pm,s.penC,s.p.line,m.liveBarn,noteFor(s.p)];
+  }));
 }
-function listOfGamesRow(){
+function gameLogTSV(){ return gameLogArr().map(function(r){return r.join("\t");}).join("\n"); }
+function listOfGamesArr(){
   var m=game.meta;
   var gf=game.events.filter(function(e){return e.type==="GF";}).length;
   var ga=game.events.filter(function(e){return e.type==="GA";}).length;
@@ -335,28 +339,108 @@ function listOfGamesRow(){
   var mvpName=game.mvp?((byId(game.mvp)||{}).name||""):"";
   var head=["Date/Time","Day","Month","AM/PM","Opponent","Location / Arena","Result","Guelph","Opponent","Home/Away","Type","LiveBarn available?","Goalie","MVP (Belt)","MVP 2 (Game breaker)","MVP 3 (Hat)","Game notes"];
   var row=[m.date,"","","",opponent(),m.arena||"",result,gf,ga,(m.weAre==="home"?"Home":"Away"),gameTypeExport(),m.liveBarn,goalieNames,mvpName,"","",""];
-  return [head.join("\t"), row.join("\t")].join("\n");
+  return [head, row];
 }
-function eventsCSV(){
+function listOfGamesRow(){ return listOfGamesArr().map(function(r){return r.join("\t");}).join("\n"); }
+function eventLogArr(){
   var m=game.meta;
-  var q=function(v){ v=String(v==null?"":v); return /[,"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   var ctx=[
-    "Game,"+q((m.homeTeam||"")+" vs "+(m.awayTeam||"")),
-    "Arena,"+q(m.arena||""),
-    "Date,"+q(m.date||""),
-    "Game start,"+q(fmtWall(game.startWall)||"—"),
-    "MVP,"+q(game.mvp?("#"+numOf(game.mvp)+" "+((byId(game.mvp)||{}).name||"")):"—"),
-    ""
+    ["Game",(m.homeTeam||"")+" vs "+(m.awayTeam||"")],
+    ["Arena",m.arena||""],
+    ["Date",m.date||""],
+    ["Game start",fmtWall(game.startWall)||"—"],
+    ["MVP",game.mvp?("#"+numOf(game.mvp)+" "+((byId(game.mvp)||{}).name||"")):"—"],
+    []
   ];
   var head=["Period","Game Clock","Real Time","Type","Scorer/Player","Assists","On Ice","Goalie","Even Strength","Pen Mins","TBC"];
   var n=function(id){ return id?"#"+numOf(id):""; };
-  var lines=game.events.map(function(e){
+  var rows=game.events.map(function(e){
     var rt=fmtWall(e.wall);
-    if(e.type==="GF") return [e.period,e.time,rt,"Goal For",n(e.scorer),(e.assists||[]).map(n).join(" "),(e.onIce||[]).map(n).join(" "),"",e.even?"Y":"N","",e.tbc?"Y":""].join(",");
-    if(e.type==="GA") return [e.period,e.time,rt,"Goal Against","","",(e.onIce||[]).map(n).join(" "),n(e.goalie),e.even?"Y":"N","",e.tbc?"Y":""].join(",");
-    return [e.period,e.time,rt,"Penalty",n(e.player),"","","","",e.mins,e.tbc?"Y":""].join(",");
+    if(e.type==="GF") return [e.period,e.time,rt,"Goal For",n(e.scorer),(e.assists||[]).map(n).join(" "),(e.onIce||[]).map(n).join(" "),"",e.even?"Y":"N","",e.tbc?"Y":""];
+    if(e.type==="GA") return [e.period,e.time,rt,"Goal Against","","",(e.onIce||[]).map(n).join(" "),n(e.goalie),e.even?"Y":"N","",e.tbc?"Y":""];
+    return [e.period,e.time,rt,"Penalty",n(e.player),"","","","",e.mins,e.tbc?"Y":""];
   });
-  return ctx.concat([head.join(",")]).concat(lines).join("\n");
+  return ctx.concat([head]).concat(rows);
+}
+function eventsCSV(){
+  var q=function(v){ v=String(v==null?"":v); return /[,"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  return eventLogArr().map(function(r){return r.map(q).join(",");}).join("\n");
+}
+// ---- dependency-free XLSX writer + one-file export ----
+var _crc=(function(){var t=[];for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function crc32(b){var c=0xFFFFFFFF;for(var i=0;i<b.length;i++)c=_crc[(c^b[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function _cat(arrs){var l=0;arrs.forEach(function(a){l+=a.length;});var o=new Uint8Array(l),p=0;arrs.forEach(function(a){o.set(a,p);p+=a.length;});return o;}
+function _u16(n){return new Uint8Array([n&0xFF,(n>>>8)&0xFF]);}
+function _u32(n){return new Uint8Array([n&0xFF,(n>>>8)&0xFF,(n>>>16)&0xFF,(n>>>24)&0xFF]);}
+function zipStore(files){
+  var enc=new TextEncoder(),chunks=[],central=[],offset=0;
+  files.forEach(function(f){
+    var nb=enc.encode(f.name),crc=crc32(f.bytes),sz=f.bytes.length;
+    var lfh=_cat([_u32(0x04034b50),_u16(20),_u16(0),_u16(0),_u16(0),_u16(0),_u32(crc),_u32(sz),_u32(sz),_u16(nb.length),_u16(0),nb]);
+    chunks.push(lfh,f.bytes);
+    central.push(_cat([_u32(0x02014b50),_u16(20),_u16(20),_u16(0),_u16(0),_u16(0),_u16(0),_u32(crc),_u32(sz),_u32(sz),_u16(nb.length),_u16(0),_u16(0),_u16(0),_u16(0),_u32(0),_u32(offset),nb]));
+    offset+=lfh.length+sz;
+  });
+  var cd=_cat(central);
+  var eocd=_cat([_u32(0x06054b50),_u16(0),_u16(0),_u16(files.length),_u16(files.length),_u32(cd.length),_u32(offset),_u16(0)]);
+  return _cat(chunks.concat([cd,eocd]));
+}
+function _xesc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function _colName(n){var s="";n++;while(n>0){var m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
+function buildXlsx(sheets){
+  var enc=new TextEncoder();
+  function sheetXml(sh){
+    var rx="";
+    sh.rows.forEach(function(row,ri){
+      var cells="";
+      row.forEach(function(v,ci){
+        if(v===null||v===undefined||v==="")return;
+        var ref=_colName(ci)+(ri+1);
+        if(typeof v==="number"&&isFinite(v)) cells+='<c r="'+ref+'"><v>'+v+'</v></c>';
+        else cells+='<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+_xesc(v)+'</t></is></c>';
+      });
+      rx+='<row r="'+(ri+1)+'">'+cells+'</row>';
+    });
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+rx+'</sheetData></worksheet>';
+  }
+  var files=[];
+  files.push({name:"[Content_Types].xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map(function(s,i){return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';}).join("")+"</Types>"});
+  files.push({name:"_rels/.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'});
+  files.push({name:"xl/workbook.xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map(function(s,i){return '<sheet name="'+_xesc(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>';}).join("")+"</sheets></workbook>"});
+  files.push({name:"xl/_rels/workbook.xml.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map(function(s,i){return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>';}).join("")+"</Relationships>"});
+  sheets.forEach(function(s,i){files.push({name:"xl/worksheets/sheet"+(i+1)+".xml",data:sheetXml(s)});});
+  return zipStore(files.map(function(f){return {name:f.name,bytes:enc.encode(f.data)};}));
+}
+function safeName(){
+  var base="BENCH "+(opponent()||"game")+" "+(game.meta.date||"");
+  return base.replace(/[^\w\- ]/g,"").trim().replace(/\s+/g,"_").replace(/^_+|_+$/g,"")+".xlsx";
+}
+function exportXlsx(){
+  try{
+    var sheets=[
+      {name:"List of Games", rows:listOfGamesArr()},
+      {name:"Game Log", rows:gameLogArr()},
+      {name:"Event Log", rows:eventLogArr()}
+    ];
+    var bytes=buildXlsx(sheets);
+    var fname=safeName();
+    var blob=new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    var file=null;
+    try{ file=new File([blob],fname,{type:blob.type}); }catch(e){}
+    if(file && navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file],title:fname}).catch(function(){ downloadBlob(blob,fname); });
+    } else {
+      downloadBlob(blob,fname);
+    }
+  }catch(e){ alert("Couldn't build the Excel file on this device — use \u201cCopy as text instead\u201d below."); }
+}
+function downloadBlob(blob,fname){
+  try{
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a"); a.href=url; a.download=fname; a.style.display="none";
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },1500);
+  }catch(e){ alert("Download not supported here — use \u201cCopy as text instead\u201d below."); }
 }
 
 // ---------- open / save modal ----------
@@ -505,10 +589,14 @@ function statsView(){
     h+='</tbody></table>';
   }
   h+=mvpCard();
-  h+=exportBlock("① List of Games row — paste into the List of Games tab (arena, score, goalie, MVP)","listgames",listOfGamesRow());
-  h+=exportBlock("② Game Log rows — per-player stats (matches column order)","gamelog",gameLogTSV());
-  h+=exportBlock("Event log with timestamps — records / video check","events",eventsCSV());
-  h+='<div class="note">Paste ① into List of Games and ② into Game Log (each below its header row, not over it). Both are plain values, so they won\'t disturb your formulas. For the season totals to add up, the player names here must match your Players Log. Note: Penalty # is a count — your sheet does ×2 for minutes, so 5-minute majors will undercount unless you adjust that.</div>';
+  h+='<button class="xlsxbtn" data-act="xlsx">⬇  Export game to Excel (.xlsx)</button>';
+  h+='<div class="note">One file, three tabs — List of Games, Game Log, Event Log. On iPhone this opens the share sheet, so you can AirDrop it to your Mac or Save to Files. Numbers stay numbers; leading zeros (00) are kept.</div>';
+  h+='<details class="copyfallback"><summary>Or copy as text instead</summary>'+
+     exportBlock("① List of Games row","listgames",listOfGamesRow())+
+     exportBlock("② Game Log rows","gamelog",gameLogTSV())+
+     exportBlock("Event log with timestamps","events",eventsCSV())+
+     '</details>';
+  h+='<div class="note">Game Log matches your sheet\'s column order; List of Games carries arena, score, goalie and MVP. Penalty # is a count — your sheet does ×2 for minutes, so 5-minute majors will undercount unless you adjust that.</div>';
   return h;
 }
 function mvpCard(){
@@ -672,6 +760,7 @@ document.addEventListener("click",function(ev){
     case "clearCancel": ui.confirmClear=false; render(); break;
     case "clearConfirm": game=blankGame(); ui.running=false; ui.anchor=null; ui.confirmClear=false; stopTick(); save(); render(); break;
     case "copy": doCopy(id); break;
+    case "xlsx": exportXlsx(); break;
     case "setLogo": pickLogo(id); break;
     // modal
     case "ovl": ui.modal=null; render(); break;
