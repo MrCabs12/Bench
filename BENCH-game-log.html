@@ -119,6 +119,12 @@
   .xlsxbtn{width:100%; margin-top:18px; padding:15px; border-radius:12px; background:var(--gold); color:var(--goldink); font-weight:900; font-size:15px; letter-spacing:.01em;}
   .copyfallback{margin-top:12px;}
   .copyfallback summary{color:var(--muted); font-size:13px; padding:8px 0; cursor:pointer;}
+  .addrow{margin-top:2px;}
+  .addrow .addnum{width:46px; flex:none; background:var(--surface2); color:var(--ink); border:none; border-radius:6px; padding:8px 4px; font-size:16px; text-align:center;}
+  .addrow .addname{flex:1; min-width:0; background:var(--surface2); color:var(--ink); border:none; border-radius:6px; padding:8px 10px; font-size:16px;}
+  .addrow .addposel{flex:none; background:var(--surface2); color:#d4d4d8; border:none; border-radius:6px; padding:8px 4px; font-size:15px;}
+  .addplus{width:42px; flex:none; background:var(--gold); color:var(--goldink); border-radius:6px; padding:9px 0; font-weight:900; font-size:20px; line-height:1;}
+  .cuptag{font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:var(--gold); border:1px solid var(--gold); border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:middle;}
   .field .teamsel{flex:1; width:auto; min-width:0; background:var(--surface2); color:var(--ink); border:none; border-radius:9px; padding:11px 10px; font-size:15px;}
   .field .teamcustom{width:100%; background:var(--surface2); color:var(--ink); border:none; border-radius:9px; padding:11px 12px; font-size:16px;}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
@@ -208,7 +214,7 @@ function blankGame(){
 }
 
 // transient (not persisted)
-var ui = {tab:"log", modal:null, onlyTbc:false, running:false, anchor:null, savedFlash:false, confirmClear:false};
+var ui = {tab:"log", modal:null, onlyTbc:false, running:false, anchor:null, savedFlash:false, confirmClear:false, addForm:{num:"",name:"",pos:"F"}};
 var game = blankGame();
 var clockTimer = null;
 
@@ -639,11 +645,24 @@ function setupView(){
   h+='<div class="eyebrow" style="padding:6px 0 8px">Roster — set lines, mark absences</div>';
   h+=game.roster.map(function(p){
     return '<div class="rosterrow'+(p.absent?" out":"")+'"><span class="num">'+esc(p.num)+'</span>'+
-      '<span class="nm">'+esc(p.name)+'</span><span class="pos">'+esc(p.pos)+(p.shoots?" · "+esc(p.shoots):"")+'</span>'+
+      '<span class="nm">'+esc(p.name)+(p.custom?' <span class="cuptag">call-up</span>':'')+'</span><span class="pos">'+esc(p.pos)+(p.shoots?" · "+esc(p.shoots):"")+'</span>'+
       (p.pos!=="G"?'<select data-field="line" data-id="'+p.id+'">'+
         ["","A","B","C"].map(function(o){return '<option'+(p.line===o?" selected":"")+'>'+(o||"—")+'</option>';}).join("")+'</select>':'')+
-      '<button class="inout'+(p.absent?" out":"")+'" data-act="absent" data-id="'+p.id+'">'+(p.absent?"absent":"in")+'</button></div>';
+      (p.custom
+        ? '<button class="inout out" data-act="removePlayer" data-id="'+p.id+'">remove</button>'
+        : '<button class="inout'+(p.absent?" out":"")+'" data-act="absent" data-id="'+p.id+'">'+(p.absent?"absent":"in")+'</button>')+
+      '</div>';
   }).join("");
+  var af=ui.addForm||{num:"",name:"",pos:"F"};
+  h+='<div class="eyebrow" style="padding:10px 0 8px">Add a player (call-up / affiliate)</div>';
+  h+='<div class="rosterrow addrow">'+
+       '<input class="addnum" data-field="addNum" value="'+esc(af.num)+'" placeholder="#" inputmode="numeric">'+
+       '<input class="addname" data-field="addName" value="'+esc(af.name)+'" placeholder="Full name">'+
+       '<select class="addposel" data-field="addPos">'+
+         ["F","D","G"].map(function(o){return '<option value="'+o+'"'+(af.pos===o?" selected":"")+'>'+o+'</option>';}).join("")+
+       '</select>'+
+       '<button class="addplus" data-act="addPlayer">+</button>'+
+     '</div>';
   h+='<button class="danger" data-act="newgame">New game (clear everything)</button>';
   return h;
 }
@@ -756,6 +775,13 @@ document.addEventListener("click",function(ev){
     case "filterTbc": ui.onlyTbc=!ui.onlyTbc; render(); break;
     case "meta": mutate(function(){ game.meta[el.getAttribute("data-field")]=id; }); break;
     case "absent": mutate(function(){ var p=byId(id); if(p){ p.absent=!p.absent; if(p.absent){ var k=game.onIce.indexOf(id); if(k>=0) game.onIce.splice(k,1);} } }); break;
+    case "addPlayer": addPlayer(); break;
+    case "removePlayer": mutate(function(){
+        game.roster=game.roster.filter(function(p){return p.id!==id;});
+        game.onIce=game.onIce.filter(function(x){return x!==id;});
+        if(game.goalie===id) game.goalie=(goalies()[0]||{}).id||"";
+        if(game.mvp===id) game.mvp="";
+      }); break;
     case "newgame": ui.confirmClear=true; render(); break;
     case "clearCancel": ui.confirmClear=false; render(); break;
     case "clearConfirm": game=blankGame(); ui.running=false; ui.anchor=null; ui.confirmClear=false; stopTick(); save(); render(); break;
@@ -809,6 +835,17 @@ function modalPick(id){
   render();
 }
 function modalOnice(id){ var a=ui.modal.draft.onIce, i=a.indexOf(id); if(i>=0) a.splice(i,1); else a.push(id); render(); }
+function addPlayer(){
+  var af=ui.addForm||{};
+  var num=String(af.num||"").trim(), name=String(af.name||"").trim(), pos=af.pos||"F";
+  if(!name){ alert("Enter the player's name."); return; }
+  if(!num){ alert("Enter the player's number."); return; }
+  var id="cust"+Date.now()+Math.random().toString(36).slice(2,5);
+  var p={ id:id, name:name, short:name.split(/\s+/)[0], num:num, pos:pos, shoots:"", line:"", absent:false, custom:true };
+  mutate(function(){ game.roster.push(p); });
+  ui.addForm={num:"",name:"",pos:"F"};
+  render();
+}
 
 // text inputs (no re-render, keep focus)
 document.addEventListener("change",function(ev){
@@ -834,6 +871,9 @@ document.addEventListener("input",function(ev){
   var f=el.getAttribute("data-field");
   if(f==="mtime"){ if(ui.modal) ui.modal.draft.time=el.value; return; }
   if(f==="line"){ var p=byId(el.getAttribute("data-id")); if(p){ p.line=(el.value==="—"?"":el.value); save(); } return; }
+  if(f==="addNum"){ ui.addForm.num=el.value; return; }
+  if(f==="addName"){ ui.addForm.name=el.value; return; }
+  if(f==="addPos"){ ui.addForm.pos=el.value; return; }
   if(game.meta.hasOwnProperty(f)){ game.meta[f]=el.value; save(); flashSaved(); }
 });
 
